@@ -42,3 +42,6 @@ La API gestiona la información de 8 módulos obligatorios estructurados mediant
    python -m venv venv
    source venv/bin/activate  # En sistemas Unix/MacOS
    venv\Scripts\activate     # En sistemas Windows
+   python app.py
+   python seed.py
+   python app.py
