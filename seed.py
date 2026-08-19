@@ -179,13 +179,14 @@ with app.app_context():
         db.session.commit()
 
         desc, cie10 = random.choice(DIAGNOSTICOS_CATALOGO)
-        db.session.add(Diagnostico(consulta_id=consulta.id, descripcion=desc, codigo_cie10=cie10))
+        db.session.add(Diagnostico(consulta_id=consulta.id, descripcion=desc, codigo_cie10=cie10, fecha=cita.fecha))
 
         if random.random() < 0.45:
             db.session.add(EstudioClinico(
                 paciente_id=cita.paciente_id,
                 tipo=random.choice(TIPOS_ESTUDIO),
                 resultado="Resultado dentro de parámetros esperados" if random.random() < 0.7 else "Resultado con hallazgos, requiere seguimiento",
+                fecha=cita.fecha,
             ))
 
         for _ in range(random.randint(0, 2)):

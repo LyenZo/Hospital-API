@@ -46,6 +46,27 @@ def leer_tabla(query):
     return pd.read_sql(query, db.engine)
 
 
+MESES_ES = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+            "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def _fmt_fecha(f):
+    return f"{f.day} de {MESES_ES[f.month]} de {f.year}"
+
+
+def periodo_texto(tabla_sql, columna_fecha="fecha"):
+    """Calcula el rango real (mín-máx) de fechas de una tabla, para indicar en cada
+    gráfica exactamente a qué periodo corresponde (evita fijar un mes a mano)."""
+    df = leer_tabla(f"SELECT MIN({columna_fecha}) AS min_f, MAX({columna_fecha}) AS max_f FROM {tabla_sql}")
+    if df.empty or pd.isna(df["min_f"][0]) or pd.isna(df["max_f"][0]):
+        return "Sin datos con fecha registrados"
+    minf = pd.to_datetime(df["min_f"][0])
+    maxf = pd.to_datetime(df["max_f"][0])
+    if minf.year == maxf.year and minf.month == maxf.month:
+        return f"Periodo: {MESES_ES[minf.month]} de {minf.year}"
+    return f"Periodo: del {_fmt_fecha(minf)} al {_fmt_fecha(maxf)}"
+
+
 def _figura_a_base64(fig):
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png", dpi=140, bbox_inches="tight")
@@ -148,7 +169,7 @@ def grafico_especialidades_demanda():
     return jsonify(grafico_barras(
         df["especialidad"], df["total"],
         titulo="Especialidades con mayor demanda",
-        subtitulo="Número de citas registradas por especialidad médica",
+        subtitulo=f"Número de citas registradas por especialidad médica · {periodo_texto('citas')}",
         eje_x="Especialidad", eje_y="Número de citas",
         conclusion=f"{top['especialidad']} concentra la mayor demanda con {int(top['total'])} citas "
                     f"({pct}% del total registrado). Esto puede orientar la asignación de médicos y consultorios.",
@@ -175,7 +196,7 @@ def grafico_demanda_servicios():
     return jsonify(grafico_barras(
         servicios, valores,
         titulo="Demanda de servicios médicos",
-        subtitulo="Volumen de atención por tipo de servicio hospitalario",
+        subtitulo=f"Volumen de atención por tipo de servicio hospitalario · {periodo_texto('citas')}",
         eje_x="Tipo de servicio", eje_y="Número de casos",
         conclusion=f"El servicio más demandado es {servicios[idx_top]} con {valores[idx_top]} casos "
                     f"({round(valores[idx_top]/total*100,1)}% del total). Las urgencias representan "
@@ -197,7 +218,7 @@ def grafico_estudios_clinicos():
     return jsonify(grafico_barras(
         df["tipo"], df["total"],
         titulo="Estudios clínicos más solicitados",
-        subtitulo="Frecuencia por tipo de estudio (sangre, orina, heces fecales, imagenología)",
+        subtitulo=f"Frecuencia por tipo de estudio (sangre, orina, heces fecales, imagenología) · {periodo_texto('estudios_clinicos')}",
         eje_x="Tipo de estudio", eje_y="Número de estudios",
         conclusion=f"El estudio más solicitado es \"{top['tipo']}\" con {int(top['total'])} órdenes. "
                     f"Priorizar insumos y reactivos para este estudio reduce tiempos de espera.",
@@ -217,7 +238,7 @@ def grafico_frecuencia_enfermedades():
     return jsonify(grafico_barras(
         df["descripcion"], df["total"],
         titulo="Enfermedades más frecuentes",
-        subtitulo="Diagnósticos con mayor número de casos registrados",
+        subtitulo=f"Diagnósticos con mayor número de casos registrados · {periodo_texto('diagnosticos')}",
         eje_x="Diagnóstico", eje_y="Número de casos",
         conclusion=f"\"{top['descripcion']}\" es el diagnóstico más frecuente ({int(top['total'])} casos). "
                     f"Vale la pena reforzar campañas de prevención enfocadas en esta condición.",
@@ -274,7 +295,7 @@ def heatmap_horarios():
     return jsonify({
         "imagen_base64": _figura_a_base64(fig),
         "titulo": "Mapa de calor de horarios",
-        "subtitulo": "Concentración de citas por día de la semana y horario",
+        "subtitulo": f"Concentración de citas por día de la semana y horario · {periodo_texto('citas')}",
         "eje_x": "Horario",
         "eje_y": "Día de la semana",
         "conclusion": f"{dia_mas_saturado} es el día más saturado (pico a las {hora_pico} hrs), mientras que "
@@ -298,7 +319,8 @@ def grafico_uso_medicamentos():
     return jsonify(grafico_barras(
         df["medicamento"], df["total"],
         titulo="Medicamentos más utilizados",
-        subtitulo="Número de veces recetado por medicamento",
+        subtitulo=f"Número de veces recetado por medicamento · "
+                   f"{periodo_texto('tratamientos t JOIN consultas c ON t.consulta_id = c.id', 'c.fecha')}",
         eje_x="Medicamento", eje_y="Veces recetado",
         conclusion=f"\"{top['medicamento']}\" es el medicamento más recetado ({int(top['total'])} veces), "
                     f"por lo que su abasto debe vigilarse con mayor frecuencia que el resto del catálogo.",
@@ -336,7 +358,8 @@ def grafico_medicamentos_precio_demanda():
     return jsonify({
         "imagen_base64": _figura_a_base64(fig),
         "titulo": "Medicamentos: precio vs. demanda",
-        "subtitulo": "Relación entre el costo unitario y la frecuencia de uso",
+        "subtitulo": f"Relación entre el costo unitario y la frecuencia de uso · "
+                       f"{periodo_texto('tratamientos t JOIN consultas c ON t.consulta_id = c.id', 'c.fecha')}",
         "eje_x": "Precio unitario ($)", "eje_y": "Veces recetado",
         "conclusion": f"La relación entre precio y demanda es {tendencia} (correlación de {round(correlacion,2)}). "
                        f"Esto ayuda a anticipar si el costo del medicamento influye en su prescripción.",
@@ -384,93 +407,6 @@ def grafico_medicamentos_caducidad():
 
 
 # ---------------------------------------------------------------------------
-# Gráficas específicas por módulo (para mostrar dentro de cada entidad,
-# no solo en Reportes y análisis)
-# ---------------------------------------------------------------------------
-
-@reportes_bp.route("/grafico/pacientes-sexo", methods=["GET"])
-def grafico_pacientes_sexo():
-    df = leer_tabla("""
-        SELECT COALESCE(NULLIF(sexo, ''), 'No especificado') AS sexo, COUNT(*) AS total
-        FROM pacientes GROUP BY sexo ORDER BY total DESC
-    """)
-    if df.empty:
-        return jsonify({"error": "Aún no hay pacientes registrados."}), 400
-    top = df.iloc[0]
-    return jsonify(grafico_pastel(
-        df["sexo"], df["total"],
-        titulo="Pacientes por sexo",
-        subtitulo="Distribución de pacientes registrados según sexo",
-        conclusion=f"La mayoría de los pacientes registrados son \"{top['sexo']}\" "
-                    f"({int(top['total'])} de {int(df['total'].sum())}). Esto ayuda a planear "
-                    f"servicios y campañas de salud dirigidas.",
-    ))
-
-
-@reportes_bp.route("/grafico/medicos-especialidad", methods=["GET"])
-def grafico_medicos_especialidad():
-    df = leer_tabla("""
-        SELECT e.nombre AS especialidad, COUNT(*) AS total
-        FROM medicos m JOIN especialidades e ON m.especialidad_id = e.id
-        GROUP BY e.nombre ORDER BY total DESC
-    """)
-    if df.empty:
-        return jsonify({"error": "Aún no hay médicos con especialidad asignada."}), 400
-    top = df.iloc[0]
-    return jsonify(grafico_barras(
-        df["especialidad"], df["total"],
-        titulo="Médicos por especialidad",
-        subtitulo="Número de médicos registrados en cada especialidad",
-        eje_x="Especialidad", eje_y="Número de médicos",
-        conclusion=f"\"{top['especialidad']}\" es la especialidad con más médicos registrados "
-                    f"({int(top['total'])}). Especialidades con pocos médicos pueden necesitar "
-                    f"contratación adicional si tienen alta demanda de citas.",
-        horizontal=True,
-    ))
-
-
-@reportes_bp.route("/grafico/consultorios-uso", methods=["GET"])
-def grafico_consultorios_uso():
-    df = leer_tabla("""
-        SELECT co.numero AS consultorio, COUNT(c.id) AS total
-        FROM consultorios co LEFT JOIN citas c ON c.consultorio_id = co.id
-        GROUP BY co.id ORDER BY total DESC
-    """)
-    if df.empty:
-        return jsonify({"error": "Aún no hay consultorios registrados."}), 400
-    top = df.iloc[0]
-    return jsonify(grafico_barras(
-        "Consultorio " + df["consultorio"].astype(str), df["total"],
-        titulo="Uso de consultorios",
-        subtitulo="Número de citas atendidas por consultorio",
-        eje_x="Consultorio", eje_y="Número de citas",
-        conclusion=f"El consultorio {top['consultorio']} es el más utilizado, con {int(top['total'])} "
-                    f"citas registradas. Consultorios con poco uso podrían reasignarse a especialidades "
-                    f"con más demanda.",
-        horizontal=True,
-    ))
-
-
-@reportes_bp.route("/grafico/pagos-metodo", methods=["GET"])
-def grafico_pagos_metodo():
-    df = leer_tabla("""
-        SELECT COALESCE(NULLIF(metodo_pago, ''), 'No especificado') AS metodo, SUM(monto) AS total
-        FROM pagos GROUP BY metodo ORDER BY total DESC
-    """)
-    if df.empty:
-        return jsonify({"error": "Aún no hay pagos registrados."}), 400
-    top = df.iloc[0]
-    return jsonify(grafico_pastel(
-        df["metodo"], df["total"],
-        titulo="Ingresos por método de pago",
-        subtitulo="Distribución del monto total cobrado según método de pago",
-        conclusion=f"\"{top['metodo']}\" concentra la mayor parte de los ingresos, con "
-                    f"${top['total']:,.2f} cobrados. Es el canal de pago que conviene mantener "
-                    f"siempre disponible y sin fallas.",
-    ))
-
-
-# ---------------------------------------------------------------------------
 # Distribución de citas / ocupación (se conservan, con formato enriquecido)
 # ---------------------------------------------------------------------------
 
@@ -482,7 +418,7 @@ def grafico_estado_citas():
     return jsonify(grafico_pastel(
         df["estado"], df["total"],
         titulo="Distribución de citas por estado",
-        subtitulo="Proporción de citas atendidas, canceladas, confirmadas y pendientes",
+        subtitulo=f"Proporción de citas atendidas, canceladas, confirmadas y pendientes · {periodo_texto('citas')}",
         conclusion=f"El {pct_cancel}% de las citas terminan canceladas. Reducir esta tasa (por ejemplo con "
                     f"recordatorios automáticos) mejora directamente la ocupación de los consultorios.",
     ))
@@ -495,9 +431,108 @@ def grafico_ocupacion_hospitalaria():
     return jsonify(grafico_pastel(
         df["estado"], df["total"],
         titulo="Ocupación hospitalaria",
-        subtitulo="Pacientes hospitalizados actualmente vs. dados de alta",
+        subtitulo=f"Pacientes hospitalizados actualmente vs. dados de alta · "
+                   f"{periodo_texto('hospitalizaciones', 'fecha_ingreso')}",
         conclusion=f"Actualmente hay {int(hospitalizados)} paciente(s) hospitalizados. Este dato, revisado a diario, "
                     f"permite anticipar la disponibilidad de camas.",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Gráficas por módulo (una por cada entidad que aún no tenía la suya)
+# ---------------------------------------------------------------------------
+
+@reportes_bp.route("/grafico/pacientes-sexo", methods=["GET"])
+def grafico_pacientes_sexo():
+    df = leer_tabla("SELECT sexo, COUNT(*) AS total FROM pacientes GROUP BY sexo")
+    if df.empty:
+        return jsonify({"error": "Aún no hay pacientes registrados."}), 400
+    top = df.iloc[df["total"].idxmax()]
+    return jsonify(grafico_pastel(
+        df["sexo"], df["total"],
+        titulo="Pacientes por sexo",
+        subtitulo=f"Distribución del total de pacientes registrados · {periodo_texto('pacientes', 'fecha_registro')}",
+        conclusion=f"El {round(top['total']/df['total'].sum()*100,1)}% de los pacientes registrados "
+                    f"corresponde a sexo {top['sexo']}.",
+    ))
+
+
+@reportes_bp.route("/grafico/medicos-especialidad", methods=["GET"])
+def grafico_medicos_especialidad():
+    df = leer_tabla("""
+        SELECT e.nombre AS especialidad, COUNT(*) AS total
+        FROM medicos m JOIN especialidades e ON m.especialidad_id = e.id
+        GROUP BY e.nombre ORDER BY total DESC
+    """)
+    if df.empty:
+        return jsonify({"error": "Aún no hay médicos registrados."}), 400
+    top = df.iloc[0]
+    return jsonify(grafico_barras(
+        df["especialidad"], df["total"],
+        titulo="Médicos por especialidad",
+        subtitulo="Cuántos médicos hay registrados en cada especialidad",
+        eje_x="Especialidad", eje_y="Número de médicos",
+        conclusion=f"{top['especialidad']} es la especialidad con más médicos asignados "
+                    f"({int(top['total'])}). Las especialidades con menos médicos podrían necesitar "
+                    f"contratación si su demanda de citas es alta.",
+        horizontal=True,
+    ))
+
+
+@reportes_bp.route("/grafico/uso-consultorios", methods=["GET"])
+def grafico_uso_consultorios():
+    df = leer_tabla("""
+        SELECT 'Consultorio ' || co.numero AS consultorio, COUNT(c.id) AS total
+        FROM consultorios co LEFT JOIN citas c ON c.consultorio_id = co.id
+        GROUP BY co.id ORDER BY total DESC
+    """)
+    if df.empty:
+        return jsonify({"error": "Aún no hay consultorios registrados."}), 400
+    top = df.iloc[0]
+    return jsonify(grafico_barras(
+        df["consultorio"], df["total"],
+        titulo="Uso de consultorios",
+        subtitulo=f"Número de citas atendidas por consultorio · {periodo_texto('citas')}",
+        eje_x="Consultorio", eje_y="Número de citas",
+        conclusion=f"{top['consultorio']} es el que más citas concentra ({int(top['total'])}). "
+                    f"Sirve para detectar consultorios subutilizados o saturados.",
+        horizontal=True,
+    ))
+
+
+@reportes_bp.route("/grafico/consultas-por-medico", methods=["GET"])
+def grafico_consultas_por_medico():
+    df = leer_tabla("""
+        SELECT m.nombre || ' ' || m.apellido_paterno AS medico, COUNT(*) AS total
+        FROM consultas co JOIN medicos m ON co.medico_id = m.id
+        GROUP BY m.id ORDER BY total DESC
+    """)
+    if df.empty:
+        return jsonify({"error": "Aún no hay consultas registradas."}), 400
+    top = df.iloc[0]
+    return jsonify(grafico_barras(
+        df["medico"], df["total"],
+        titulo="Consultas atendidas por médico",
+        subtitulo=f"Número de consultas registradas por cada médico · {periodo_texto('consultas')}",
+        eje_x="Médico", eje_y="Número de consultas",
+        conclusion=f"{top['medico']} es quien más consultas ha atendido ({int(top['total'])}). "
+                    f"Útil para balancear la carga de trabajo entre el personal médico.",
+        horizontal=True,
+    ))
+
+
+@reportes_bp.route("/grafico/ingresos-por-concepto", methods=["GET"])
+def grafico_ingresos_por_concepto():
+    df = leer_tabla("SELECT concepto, SUM(monto) AS total FROM pagos GROUP BY concepto ORDER BY total DESC")
+    if df.empty:
+        return jsonify({"error": "Aún no hay pagos registrados."}), 400
+    top = df.iloc[0]
+    return jsonify(grafico_pastel(
+        df["concepto"], df["total"],
+        titulo="Ingresos por concepto",
+        subtitulo=f"Distribución del monto cobrado según el tipo de servicio · {periodo_texto('pagos')}",
+        conclusion=f"\"{top['concepto']}\" genera la mayor parte de los ingresos "
+                    f"(${top['total']:.0f}, {round(top['total']/df['total'].sum()*100,1)}% del total).",
     ))
 
 
@@ -544,7 +579,7 @@ def segmentacion_pacientes():
     return jsonify({
         "imagen_base64": _figura_a_base64(fig),
         "titulo": "Segmentación de pacientes (K-Means)",
-        "subtitulo": "Agrupación de pacientes por frecuencia de uso y gasto total",
+        "subtitulo": f"Agrupación de pacientes por frecuencia de uso y gasto total · {periodo_texto('consultas')}",
         "eje_x": "Número de consultas", "eje_y": "Gasto total ($)",
         "conclusion": f"El cluster {int(cluster_alto['cluster'])} agrupa a los pacientes de mayor gasto promedio "
                        f"(${cluster_alto['gasto_total']:.0f}) y {cluster_alto['num_consultas']:.1f} consultas en promedio: "
@@ -594,7 +629,7 @@ def prediccion_cancelacion():
     return jsonify({
         "modelo": "Regresión logística",
         "titulo": "Predicción de cancelación de citas",
-        "subtitulo": "Clasificación supervisada según especialidad, hora y día de la semana",
+        "subtitulo": f"Clasificación supervisada según especialidad, hora y día de la semana · {periodo_texto('citas')}",
         "muestras_entrenamiento": len(X_train),
         "muestras_prueba": len(X_test),
         "exactitud_pct": exactitud,
