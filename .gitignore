@@ -1,0 +1,51 @@
+# Entornos virtuales (Virtual Environments)
+.venv/
+venv/
+env/
+ENV/
+bin/
+lib/
+develop-eggs/
+dist/
+downloads/
+eggs/
+include/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+
+# Archivos compilados y caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Variables de entorno y secretos (¡NUNCA los subas!)
+.env
+.flaskenv
+*.env
+instance/
+secrets.json
+
+# Bases de datos locales (si usas SQLite de prueba)
+*.sqlite3
+*.db
+
+# Configuración de editores de código
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
